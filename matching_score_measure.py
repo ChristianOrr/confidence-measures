@@ -1,8 +1,9 @@
 """
-This is the python script version of Semi-Global Matching with numpy.
+This is the python script version of the matching score measure 
+confidence estimation technique.
 Very little explanations are provided for the methods in this script.
-To see a detailed overview of this numpy implementation see the jupyter
-notebook: "sgm_numpy_notebook.ipynb".
+To see a detailed overview of this implementation see the jupyter
+notebook with the same name.
 """
 
 import argparse
@@ -10,6 +11,7 @@ import sys
 import time as t
 import cv2
 import numpy as np
+from matplotlib import cm
 
 
 def get_path_cost(slice, offset, penalties, other_dim, disparity_dim):
@@ -125,49 +127,6 @@ def aggregate_costs(cost_volume, P2, P1, height, width, disparities):
     return aggregation_volume
 
 
-def compute_census_np(left, right, csize, height, width):
-    """
-    Calculate census bit strings for each pixel in the left and right images.
-    Arguments:
-        - left: left grayscale image.
-        - right: right grayscale image.
-        - csize: kernel size for the census transform.
-        - height: number of rows of the image.
-        - width: number of columns of the image.
-
-    Return: Left and right images with pixel intensities replaced with census bit strings.
-    """
-    cheight = csize[0]
-    cwidth = csize[1]
-    y_offset = int(cheight / 2)
-    x_offset = int(cwidth / 2)
-
-    print('\tComputing left and right census...', end='')
-    sys.stdout.flush()
-    dawn = t.time()
-    # pixels on the border will have no census values
-    left_census_values = np.pad(np.array([[
-        np.where((left[(y - y_offset):(y + y_offset + 1), (x - x_offset):(x + x_offset + 1)] - 
-        np.full(shape=(cheight, cwidth), fill_value=left[y, x], dtype=np.int32)) < 0, 1, 0).flatten().dot(1 << np.arange(cheight * cwidth)[::-1])
-        for x in range(x_offset, width - x_offset)]
-        for y in range(y_offset, height - y_offset)]), 
-            pad_width=((y_offset, y_offset), (x_offset, x_offset)), constant_values=0)
-
-
-    right_census_values = np.pad(np.array([[
-        np.where((right[(y - y_offset):(y + y_offset + 1), (x - x_offset):(x + x_offset + 1)] - 
-        np.full(shape=(cheight, cwidth), fill_value=right[y, x], dtype=np.int32)) < 0, 1, 0).flatten().dot(1 << np.arange(cheight * cwidth)[::-1])
-        for x in range(x_offset, width - x_offset)] 
-        for y in range(y_offset, height - y_offset)]), 
-            pad_width=((y_offset, y_offset), (x_offset, x_offset)), constant_values=0)
-
-
-    dusk = t.time()
-    print('\t(done in {:.2f}s)'.format(dusk - dawn))
-
-    return left_census_values, right_census_values
-
-
 def compute_census(left, right, csize, height, width):
     """
     Calculate census bit strings for each pixel in the left and right images.
@@ -220,58 +179,6 @@ def compute_census(left, right, csize, height, width):
     print('\t(done in {:.2f}s)'.format(dusk - dawn))
 
     return left_census_values, right_census_values
-    
-
-def compute_costs_np_slow(left_census_values, right_census_values, max_disparity, csize, height, width):
-    """
-    Create cost volume for all potential disparities. 
-    Cost volumes for both left and right images are calculated.
-    Hamming distance is used to calculate the matching cost between 
-    two pixels census values.
-    Arguments:
-        - left_census_values: left image containing census bit strings for each pixel (in integer form).
-        - right_census_values: right image containing census bit strings for each pixel (in integer form).
-        - max_disparity: maximum disparity to measure.
-        - csize: kernel size for the census transform.
-        - height: number of rows of the image.
-        - width: number of columns of the image.
-
-    Return: Left and right cost volumes with dimensions H x W x D.
-    """
-    cwidth = csize[1]
-    x_offset = int(cwidth / 2)
-    disparity = max_disparity
-
-    print('\tComputing cost volumes...', end='')
-    sys.stdout.flush()
-    dawn = t.time()
-
-    left_cost_volume = np.zeros(shape=(height, width, disparity), dtype=np.uint32)
-    right_cost_volume = np.zeros(shape=(height, width, disparity), dtype=np.uint32)
-    lcensus = np.zeros(shape=(height, width), dtype=np.int32)
-    rcensus = np.zeros(shape=(height, width), dtype=np.int32)
-
-    def calc_hamming_distance(binary_number):
-        return np.sum(np.frombuffer(np.binary_repr(binary_number, width=64).encode(), dtype='S1').astype(int))
-    calc_hamming_distance_vec = np.vectorize(calc_hamming_distance)
-
-
-    for d in range(0, disparity):
-        rcensus[:, (x_offset + d):(width - x_offset)] = right_census_values[:, x_offset:(width - d - x_offset)]
-        left_xor = np.int32(np.bitwise_xor(np.int32(left_census_values), rcensus))
-        left_distance = calc_hamming_distance_vec(left_xor)
-        left_cost_volume[:, :, d] = left_distance
-
-        lcensus[:, x_offset:(width - d - x_offset)] = left_census_values[:, (x_offset + d):(width - x_offset)]
-        right_xor = np.int32(np.bitwise_xor(np.int32(right_census_values), lcensus))
-        right_distance = calc_hamming_distance_vec(right_xor)
-        right_cost_volume[:, :, d] = right_distance
-
-
-    dusk = t.time()
-    print('\t(done in {:.2f}s)'.format(dusk - dawn))
-
-    return left_cost_volume, right_cost_volume
 
 
 def compute_costs(left_census_values, right_census_values, max_disparity, csize, height, width):
@@ -336,6 +243,33 @@ def compute_costs(left_census_values, right_census_values, max_disparity, csize,
     return left_cost_volume, right_cost_volume
 
 
+def matching_score_measure(aggregation_volume):
+    """
+    Creates a confidence map (H x W) using the 
+    matching score measure technique from the 
+    aggregation volume (H x W x D x N).
+
+    Arguments:
+        - aggregation_volume: Array containing the matching costs for 
+            all pixels at all disparities and paths, with dimension H x W x D x N
+
+    Returns: Confidence map with normalized values (0-1) and 
+        dimensions H x W.
+    """
+    # sum up costs for all directions
+    volume = np.sum(aggregation_volume, axis=3, dtype=np.int32)     
+    # returns the minimum cost associated with each h x w pixel
+    min_costs = np.min(volume, axis=2) 
+    # Negate the cost so that lower is less confidant and higher is more confident
+    min_costs = -min_costs
+    # Normalize to get confidence values between 0-1
+    minimum = np.min(min_costs)
+    maximum = np.max(min_costs)
+    confidence = (min_costs - minimum) / (maximum - minimum)
+    return confidence
+
+
+
 def select_disparity(aggregation_volume):
     """
     Converts the aggregation volume into a disparity map using 
@@ -370,27 +304,21 @@ def normalize(disp, max_disparity):
     return 255.0 * disp / max_disparity
 
 
-def get_recall(disparity, gt, max_disparity):
+def colorize_image(image, cmap='jet'):
     """
-    Calculates the percentage of pixels from the 
-    disparity map "disparity" within 3 absolute 
-    disparity of the ground truth "gt". 
-    Higher percentage is better.
-
+    Converts single channel matrix with quantized values
+    to an RGB colorized version.
     Arguments:
-        - disparity: 
-        - gt: 
-        - max_disparity: 
-
-    Returns: Percentage of pixels within 3 disparity of 
-    the groundtruth.
+      - image: Quantized (uint8) single channel image with dimensions H x W 
+      - cmap: a valid cmap named for use with matplotlib's 'get_cmap'
+    
+    Returns an RGB depth map with dimension H x W x 3.
     """
-    gt = np.float32(gt)
-    gt = np.int16(gt / 255.0 * float(max_disparity))
-    disparity = np.int16(np.float32(disparity) / 255.0 * float(max_disparity))
-    correct = np.count_nonzero(np.abs(disparity - gt) <= 3)
-    return float(correct) / gt.size
-
+    color_map = cm.get_cmap(cmap)
+    colors = color_map(np.arange(256))[:, :3].astype(np.float32)
+    colorized_map = np.take(colors, image, axis=0)
+    colorized_map = np.uint8(colorized_map * 255)
+    return colorized_map
 
 
 def sgm(left, right, max_disparity, P1, P2, csize, bsize):
@@ -410,6 +338,11 @@ def sgm(left, right, max_disparity, P1, P2, csize, bsize):
     right_aggregation_volume = aggregate_costs(right_cost_volume, P2, P1, height, width, max_disparity)
 
 
+    print("Calculating confidences...")
+    left_confidences = matching_score_measure(left_aggregation_volume)
+    right_confidences = matching_score_measure(right_aggregation_volume)
+
+
     print('\nSelecting best disparities...')
     left_disparity_map = np.uint8(normalize(select_disparity(left_aggregation_volume), max_disparity))
     right_disparity_map = np.uint8(normalize(select_disparity(right_aggregation_volume), max_disparity))
@@ -419,7 +352,7 @@ def sgm(left, right, max_disparity, P1, P2, csize, bsize):
     left_disparity_map = cv2.medianBlur(left_disparity_map, bsize[0])
     right_disparity_map = cv2.medianBlur(right_disparity_map, bsize[0])
 
-    return left_disparity_map, right_disparity_map
+    return left_disparity_map, right_disparity_map, left_confidences, right_confidences
 
 
 
@@ -432,7 +365,7 @@ if __name__ == '__main__':
     parser.add_argument('--right_gt', default='cones/disp6.png', help='name (path) to the right ground-truth image')
     parser.add_argument('--output', default='disparity_map.png', help='name of the output image')
     parser.add_argument('--disp', default=64, type=int, help='maximum disparity for the stereo pair')
-    parser.add_argument('--images', default=False, type=bool, help='save intermediate representations')
+    parser.add_argument('--images', default=True, type=bool, help='save intermediate representations')
     parser.add_argument('--eval', default=True, type=bool, help='evaluate disparity map with 3 pixel error')
     parser.add_argument('--p1', default=10, type=int, help='penalty for disparity difference = 1')
     parser.add_argument('--p2', default=120, type=int, help='penalty for disparity difference > 1')
@@ -464,23 +397,25 @@ if __name__ == '__main__':
     assert max_disparity > 0, 'maximum disparity must be greater than 0.'
 
 
-    left_disparity_map, right_disparity_map = sgm(left, right, max_disparity, P1, P2, csize, bsize)
+    left_disparity_map, right_disparity_map, left_confidences, right_confidences = sgm(left, right, max_disparity, P1, P2, csize, bsize)
 
 
     if save_images:
-        cv2.imwrite(f'left_{output_name}', np.array(left_disparity_map))
-        cv2.imwrite(f'right_{output_name}', np.array(right_disparity_map))
+        cv2.imwrite(f'left_{output_name}', colorize_image(left_disparity_map, "jet"))
+        cv2.imwrite(f'right_{output_name}', colorize_image(right_disparity_map, "jet"))
+        cv2.imwrite(f'left_conf_{output_name}', colorize_image(np.uint8(left_confidences * 255), "winter"))
+        cv2.imwrite(f'right_conf_{output_name}', colorize_image(np.uint8(right_confidences * 255), "winter"))
 
     if evaluation:
         left_gt = cv2.imread(left_gt_name, cv2.IMREAD_GRAYSCALE)
         right_gt = cv2.imread(right_gt_name, cv2.IMREAD_GRAYSCALE)
 
-        print('\nEvaluating left disparity map...')
-        recall = get_recall(left_disparity_map, left_gt, max_disparity)
-        print('\tRecall = {:.2f}%'.format(recall * 100.0))
-        print('\nEvaluating right disparity map...')
-        recall = get_recall(right_disparity_map, right_gt, max_disparity)
-        print('\tRecall = {:.2f}%'.format(recall * 100.0))
+        # print('\nEvaluating left disparity map...')
+        # recall = get_recall(left_disparity_map, left_gt, max_disparity)
+        # print('\tRecall = {:.2f}%'.format(recall * 100.0))
+        # print('\nEvaluating right disparity map...')
+        # recall = get_recall(right_disparity_map, right_gt, max_disparity)
+        # print('\tRecall = {:.2f}%'.format(recall * 100.0))
 
     dusk = t.time()
     print('\nFin.')
