@@ -1,5 +1,5 @@
 """
-This is the python script version of the matching score measure 
+This is the python script version of the  
 confidence estimation technique.
 Very little explanations are provided for the methods in this script.
 To see a detailed overview of this implementation see the jupyter
@@ -243,7 +243,7 @@ def compute_costs(left_census_values, right_census_values, max_disparity, csize,
     return left_cost_volume, right_cost_volume
 
 
-def matching_score_measure(aggregation_volume):
+def matching_score_measure(aggregation_volume, csize):
     """
     Creates a confidence map (H x W) using the 
     matching score measure technique from the 
@@ -251,7 +251,8 @@ def matching_score_measure(aggregation_volume):
 
     Arguments:
         - aggregation_volume: Array containing the matching costs for 
-            all pixels at all disparities and paths, with dimension H x W x D x N
+            all pixels at all disparities and paths, with dimension H x W x D x N.
+        - csize: kernel size for the census transform.
 
     Returns: Confidence map with normalized values (0-1) and 
         dimensions H x W.
@@ -266,8 +267,30 @@ def matching_score_measure(aggregation_volume):
     minimum = np.min(min_costs)
     maximum = np.max(min_costs)
     confidence = (min_costs - minimum) / (maximum - minimum)
+    # Set border pixels confidence to 0 (since disparity couldn't be calculated there)
+    confidence[:csize[0], :] = 0 # top border
+    confidence[-csize[0]:, :] = 0 # bottom border
+    confidence[:, :csize[1]] = 0 # left border
+    confidence[:, -csize[1]:] = 0 # right border
     return confidence
 
+
+def filter_disparity(disp, conf, threshold):
+    """
+    Filters out all disparities with confidence
+    lower than the threshold value.
+    Then returns the filtered disparity map.
+
+    Arguments:
+        - disp: disparity map with dimensions H x W.
+        - conf: confidence map with dimensions H x W.
+        - threshold: minimum confidence required to keep 
+            the disparity value.
+
+    Returns: Filtered disparity map with dimensions H x W.
+    """
+    filtered_conf = np.where(conf >= threshold, disp, 0)
+    return filtered_conf
 
 
 def select_disparity(aggregation_volume):
@@ -321,8 +344,109 @@ def colorize_image(image, cmap='jet'):
     return colorized_map
 
 
-def sgm(left, right, max_disparity, P1, P2, csize, bsize):
+def calc_roc(disp, gt, conf, tau):
+    """
+    Sorts the disparities based on decreasing confidence.
+    Then calculates the errors for the decreasing confidence
+    disparities. The mean errors at cumulitive intervals are then 
+    added to an array to be used for the y-values in the ROC curve.
 
+    The optimal ROC values are then calculated using the same method,
+    but the errors are arranged by adding incorrect values 
+    to the back of the array.
+
+    Arguments:
+        - disp: disparity map with dimensions H x W.
+        - disp: groundtruth disparity map with dimensions H x W.
+        - conf: confidence map with dimensions H x W.
+        - tau: threshold used for D1 error rate, number of disparities with difference > tau.
+
+    Returns: ROC curve, optimal ROC curve, 
+        mean error sorted confidence array and 
+        ratios of pixels used for x_axis in ROC curves
+    """
+    # Don't use pixels lacking ground truth disparity
+    valid = gt > 0
+    disp = disp[valid]
+    gt = gt[valid]
+    conf = conf[valid]
+
+    # Sort the disparities based on decreasing order of confidence
+    sorted_indices = np.argsort(conf)[::-1]
+    sorted_disp = np.take_along_axis(disp, sorted_indices, axis=0)
+    sorted_gt = np.take_along_axis(gt, sorted_indices, axis=0)
+    sorted_conf = np.take_along_axis(conf, sorted_indices, axis=0)  
+
+    # Get the errors (disparities with greater absolute difference than tau)
+    errors = np.where(np.abs(sorted_disp - sorted_gt) > tau, 1, 0) 
+    # Get the mean error rate on all pixels
+    mean_error = np.sum(errors) / errors.shape[0]
+
+    # Find the cumulitive ratios of data to calculate errors for the roc curve
+    step_size = 0.05
+    cumulitive_ratio = 0
+    ratio_pixels = []
+    while cumulitive_ratio < 1.0:
+        cumulitive_ratio += step_size
+        ratio_pixels.append(cumulitive_ratio)  
+
+    # Calculate errors for roc curve
+    roc = []
+    for ratio in ratio_pixels:
+        index = int(errors.shape[0] * ratio)
+        number_of_errors = np.sum(errors[:index])
+        error_percentage = number_of_errors / index
+        roc.append(error_percentage)
+
+    # Calculate optimal roc curve by placing all errors at the end of the array
+    sorted_errors = np.sort(errors)
+    optimal_roc = []
+    for ratio in ratio_pixels:
+        index = int(sorted_errors.shape[0] * ratio)
+        number_of_errors = np.sum(sorted_errors[:index])
+        error_percentage = number_of_errors / index
+        optimal_roc.append(error_percentage)
+
+    return roc, optimal_roc, mean_error, sorted_conf, ratio_pixels
+
+
+def calc_auc(roc, optimal_roc):
+    """
+    Calculates the area under the ROC curve (AUC)
+    for both the ROC and optimal ROC curves.
+
+    Arguments:
+        - roc: ROC curve y-values. 
+            Errors sorted by confidence, then mean errors are 
+            calculated at cumulitive disparities.
+        - optimal_roc: optimal ROC curve y-values. 
+            Incorrect values are move to the back of 
+            errors array, then mean errors are calculated at 
+            cumulitive disparities.
+
+    Returns: AUC and optimal AUC values.
+    """
+    auc = np.trapz(roc, dx=1./20)
+    optimal_auc = np.trapz(optimal_roc, dx=1./20)
+    return auc, optimal_auc
+
+
+def sgm(left, right, max_disparity, P1, P2, csize, bsize):
+    """
+    Uses SGM to extract the aggregation cost volumes from 
+    the left and right images.
+
+    Arguments:
+        - left: left image numpy array with dimensions H x W.
+        - right: right image numpy array with dimensions H x W.
+        - max_disparity: maximum disparity of the array.
+        - P2: Penalty for disparity difference > 1.
+        - P1: Penalty for disparity difference = 1.
+        - csize: kernel size for the census transform.
+        - bsize: kernel size for gaussian blur.
+
+    Returns: Left and right aggregation cost volumes
+    """
     print("Performing Gaussian blur on the images...")
     left = cv2.GaussianBlur(left, bsize, 0, 0)
     right = cv2.GaussianBlur(right, bsize, 0, 0)
@@ -338,21 +462,7 @@ def sgm(left, right, max_disparity, P1, P2, csize, bsize):
     right_aggregation_volume = aggregate_costs(right_cost_volume, P2, P1, height, width, max_disparity)
 
 
-    print("Calculating confidences...")
-    left_confidences = matching_score_measure(left_aggregation_volume)
-    right_confidences = matching_score_measure(right_aggregation_volume)
-
-
-    print('\nSelecting best disparities...')
-    left_disparity_map = np.uint8(normalize(select_disparity(left_aggregation_volume), max_disparity))
-    right_disparity_map = np.uint8(normalize(select_disparity(right_aggregation_volume), max_disparity))
-
-
-    print('\nApplying median filter...')
-    left_disparity_map = cv2.medianBlur(left_disparity_map, bsize[0])
-    right_disparity_map = cv2.medianBlur(right_disparity_map, bsize[0])
-
-    return left_disparity_map, right_disparity_map, left_confidences, right_confidences
+    return left_aggregation_volume, right_aggregation_volume
 
 
 
@@ -365,12 +475,13 @@ if __name__ == '__main__':
     parser.add_argument('--right_gt', default='cones/disp6.png', help='name (path) to the right ground-truth image')
     parser.add_argument('--output', default='disparity_map.png', help='name of the output image')
     parser.add_argument('--disp', default=64, type=int, help='maximum disparity for the stereo pair')
-    parser.add_argument('--images', default=True, type=bool, help='save intermediate representations')
+    parser.add_argument('--images', default=False, type=bool, help='save intermediate representations')
     parser.add_argument('--eval', default=True, type=bool, help='evaluate disparity map with 3 pixel error')
     parser.add_argument('--p1', default=10, type=int, help='penalty for disparity difference = 1')
     parser.add_argument('--p2', default=120, type=int, help='penalty for disparity difference > 1')
     parser.add_argument('--csize', default=[5, 5], nargs="+", type=int, help='size of the kernel for the census transform')
     parser.add_argument('--bsize', default=[3, 3], nargs="+", type=int, help='size of the kernel for blurring the images and median filtering')
+    parser.add_argument('--tau', default=3, type=int, help='Used for D1 error rate: number of disparities with difference > tau')
     args = parser.parse_args()
 
     left_name = args.left
@@ -385,6 +496,7 @@ if __name__ == '__main__':
     P2 = args.p2
     csize = args.csize
     bsize = args.bsize
+    tau = args.tau
 
     dawn = t.time()
 
@@ -397,7 +509,23 @@ if __name__ == '__main__':
     assert max_disparity > 0, 'maximum disparity must be greater than 0.'
 
 
-    left_disparity_map, right_disparity_map, left_confidences, right_confidences = sgm(left, right, max_disparity, P1, P2, csize, bsize)
+    left_aggregation_volume, right_aggregation_volume = sgm(left, right, max_disparity, P1, P2, csize, bsize)
+
+
+    print("\nCalculating confidences...")
+    left_confidences = matching_score_measure(left_aggregation_volume, csize)
+    right_confidences = matching_score_measure(right_aggregation_volume, csize)
+
+
+    print('\nSelecting best disparities...')
+    left_disparity_map = np.uint8(normalize(select_disparity(left_aggregation_volume), max_disparity))
+    right_disparity_map = np.uint8(normalize(select_disparity(right_aggregation_volume), max_disparity))
+
+
+    print('\nApplying median filter...')
+    left_disparity_map = cv2.medianBlur(left_disparity_map, bsize[0])
+    right_disparity_map = cv2.medianBlur(right_disparity_map, bsize[0])
+
 
 
     if save_images:
@@ -409,14 +537,18 @@ if __name__ == '__main__':
     if evaluation:
         left_gt = cv2.imread(left_gt_name, cv2.IMREAD_GRAYSCALE)
         right_gt = cv2.imread(right_gt_name, cv2.IMREAD_GRAYSCALE)
+        # Calculate ROC/optimal ROC curves
+        left_roc, left_optimal_roc, left_mean_error, left_sorted_conf, ratio_pixels = calc_roc(left_disparity_map, left_gt, left_confidences, tau)
+        right_roc, right_optimal_roc, right_mean_error, right_sorted_conf, ratio_pixels = calc_roc(right_disparity_map, right_gt, right_confidences, tau)
+        # Calculate AUC/optimal AUC
+        left_auc, left_optimal_auc = calc_auc(left_roc, left_optimal_roc)
+        right_auc, right_optimal_auc = calc_auc(right_roc, right_optimal_roc)
 
-        # print('\nEvaluating left disparity map...')
-        # recall = get_recall(left_disparity_map, left_gt, max_disparity)
-        # print('\tRecall = {:.2f}%'.format(recall * 100.0))
-        # print('\nEvaluating right disparity map...')
-        # recall = get_recall(right_disparity_map, right_gt, max_disparity)
-        # print('\tRecall = {:.2f}%'.format(recall * 100.0))
+        print("\nLeft Results: ")
+        print(f"\tTotal Error: {left_mean_error:.3f}, AUC: {left_auc:.3f}, Optimal AUC: {left_optimal_auc:.3f}")
+        print("\nRight Results: ")
+        print(f"\tTotal Error: {right_mean_error:.3f}, AUC: {right_auc:.3f}, Optimal AUC: {right_optimal_auc:.3f}")
 
     dusk = t.time()
-    print('\nFin.')
+    print('\nFinished')
     print('\nTotal execution time = {:.2f}s'.format(dusk - dawn))
