@@ -207,10 +207,10 @@ def calc_auc(roc, optimal_roc):
 if __name__ == '__main__':
     
     parser = argparse.ArgumentParser()
-    parser.add_argument('--left', default='cones/im2.png', help='name (path) to the left image')
-    parser.add_argument('--right', default='cones/im6.png', help='name (path) to the right image')
-    parser.add_argument('--left_gt', default='cones/disp2.png', help='name (path) to the left ground-truth image')
-    parser.add_argument('--right_gt', default='cones/disp6.png', help='name (path) to the right ground-truth image')
+    parser.add_argument('--left', default='teddy/im2.png', help='name (path) to the left image')
+    parser.add_argument('--right', default='teddy/im6.png', help='name (path) to the right image')
+    parser.add_argument('--left_gt', default='teddy/disp2.png', help='name (path) to the left ground-truth image')
+    parser.add_argument('--right_gt', default='teddy/disp6.png', help='name (path) to the right ground-truth image')
     parser.add_argument('--output', default='disparity_map.png', help='name of the output image')
     parser.add_argument('--disp', default=64, type=int, help='maximum disparity for the stereo pair')
     parser.add_argument('--images', default=False, type=bool, help='save intermediate representations')
@@ -246,7 +246,7 @@ if __name__ == '__main__':
     assert left.shape[0] == right.shape[0] and left.shape[1] == right.shape[1], 'left & right must have the same shape.'
     assert max_disparity > 0, 'maximum disparity must be greater than 0.'
 
-
+    print("\nPerforming SGM...")
     left_aggregation_volume, right_aggregation_volume = sgm(left, right, max_disparity, P1, P2, csize, bsize, height, width)
 
 
