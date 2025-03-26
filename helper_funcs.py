@@ -2,7 +2,7 @@
 Helper functions for preparing, filtering and displaying the disparity maps.
 """
 import numpy as np
-from matplotlib import cm
+import matplotlib
 
 
 def filter_disparity(disp, conf, threshold):
@@ -67,8 +67,8 @@ def colorize_image(image, cmap='jet'):
     
     Returns an RGB depth map with dimension H x W x 3.
     """
-    color_map = cm.get_cmap(cmap)
+    color_map = matplotlib.colormaps[cmap]
     colors = color_map(np.arange(256))[:, :3].astype(np.float32)
-    colorized_map = np.take(colors, image, axis=0)
-    colorized_map = np.uint8(colorized_map * 255)
-    return colorized_map
+    depth_map = np.take(colors, image, axis=0)
+    depth_map = np.uint8(depth_map * 255)
+    return depth_map

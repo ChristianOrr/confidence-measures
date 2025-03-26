@@ -86,6 +86,6 @@ def calc_auc(roc, optimal_roc):
 
     Returns: AUC and optimal AUC values.
     """
-    auc = np.trapz(roc, dx=1./20)
-    optimal_auc = np.trapz(optimal_roc, dx=1./20)
+    auc = np.trapezoid(roc, dx=1./20)
+    optimal_auc = np.trapezoid(optimal_roc, dx=1./20)
     return auc, optimal_auc
