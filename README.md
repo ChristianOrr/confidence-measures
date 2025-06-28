@@ -4,7 +4,7 @@
 The purpose of this repository is to showcase a series of handpicked confidence measures. All the confidence measures implemented in this repository can also be found in [On the confidence of stereo matching in a deep-learning era: a quantitative evaluation](https://arxiv.org/abs/2101.00431) by M. Poggi et al. There are no plans to add any learned confidence measures, as these are generally more complicated, therefore requiring more than a single notebook to implement. The same stereo matching algorithm, SGM, and the same example, teddy from Middlebury dataset, will be used for all examples, so the conditions remain consistent for all confidence measures. 
 
 ## Confidence Estimation Process
-Each step shows the general process followed for each confidence estimation algorithm. I'm using the MSM measure for this example. 
+Each step shows the general process followed for each confidence estimation algorithm. I'm using the MSM confidence measure and SGM depth estimator for this example. 
 
 
 1. Get Undistorted and Rectified Stereo Images
@@ -15,7 +15,7 @@ Each step shows the general process followed for each confidence estimation algo
 
 ![left_right_grey](teddy/left_right_grey.png)
 
-3. The depth map is calculated using the stereo algothithm. There will be multiple steps in this process, which will vary depending on the stereo algorithm used.
+3. The depth map is calculated using the stereo algothithim. There will be multiple steps in this process, which will vary depending on the stereo algorithm used.
 
 ![left_right_depth_map](teddy/left_right_depth_map.png)
 
@@ -46,16 +46,20 @@ Brief results of the confidence measures implemented thus far are shown below. S
 - Requirements: A single cost volume.     
 - AUC Left Score: 0.685.   
 - AUC Right Score: 0.681.    
-- Confidence Map: ![MSM Confidence Map](./figures/msm_confidence_map.png)
-- ROC Curve: ![MSM ROC Curve](./figures/msm_roc_curve.png)
+- Confidence Map:  
+  ![MSM Confidence Map](./figures/msm_confidence_map.png)
+- ROC Curve:  
+  ![MSM ROC Curve](./figures/msm_roc_curve.png)
 
 #### Maximum Margin (MM):
 
 - Requirements: A single cost volume.     
 - AUC Left Score: 0.664.   
 - AUC Right Score: 0.658.    
-- Confidence Map: ![MM Confidence Map](./figures/mm_confidence_map.png)
-- ROC Curve: ![MM ROC Curve](./figures/mm_roc_curve.png)
+- Confidence Map:  
+  ![MM Confidence Map](./figures/mm_confidence_map.png)
+- ROC Curve:  
+  ![MM ROC Curve](./figures/mm_roc_curve.png)
 
 ### 2. Entire Cost Curve
 None Yet.
@@ -66,8 +70,10 @@ None Yet.
 - Requirements: Left and right disparity maps.     
 - AUC Left Score: 0.648.   
 - AUC Right Score: 0.640.    
-- Confidence Map: ![LRC Confidence Map](./figures/lrc_confidence_map.png)
-- ROC Curve: ![LRC ROC Curve](./figures/lrc_roc_curve.png)
+- Confidence Map:  
+  ![LRC Confidence Map](./figures/lrc_confidence_map.png)
+- ROC Curve:  
+  ![LRC ROC Curve](./figures/lrc_roc_curve.png)
 
 ### 4. Disparity Map Analysis
 None Yet.
